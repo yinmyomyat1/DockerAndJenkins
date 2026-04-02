@@ -1,0 +1,8 @@
+flask
+pytest
+bandit
+pip-audit
+pymysql
+flask_sqlalchemy
+sqlalchemy 
+cryptography
