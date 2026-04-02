@@ -14,7 +14,7 @@ pipeline {
         stage('Checkout') {
             steps {
                 git branch: 'main',
-                    url: 'https://github.com/myatmon-wc/dev-sec-ops-jenkins.git',
+                    url: 'https://github.com/yinmyomyat1/DockerAndJenkins.git',
                     credentialsId: '38a91060-b488-47c6-93b0-5e739fc3041d'
             }
         }
