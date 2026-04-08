@@ -228,38 +228,10 @@ pipeline {
                 sh """
                 . ./image_tag.env
                 
-                # Check if port 5000 is in use and clean up
-                echo "Checking for port conflicts..."
-                docker ps | grep -q "0.0.0.0:5000" && docker stop \$(docker ps | grep "0.0.0.0:5000" | awk '{print \$1}') || true
-                
-                # Stop and remove existing container if it exists
-                docker stop myapp3 || true
-                docker rm myapp3 || true
-                
-                # Stop and remove MySQL DAST container if it exists
-                docker stop mysql-db-dast || true
-                docker rm mysql-db-dast || true
-                
-                # Run MySQL container for the DAST test
-                docker run -d --name mysql-db-dast \
-                    -e MYSQL_ROOT_PASSWORD=root \
-                    -e MYSQL_DATABASE=imdb_db \
-                    --network ${NETWORK_NAME} \
-                    mysql:8.0
-                
-                # Wait for MySQL to be ready
-                echo "Waiting for MySQL DAST container..."
-                for i in \$(seq 1 30); do
-                    if docker exec mysql-db-dast mysqladmin ping -h localhost -uroot -proot --silent 2>/dev/null; then
-                        echo "MySQL DAST is ready!"
-                        break
-                    fi
-                    echo "Waiting for MySQL DAST... (attempt \$i/30)"
-                    sleep 5
-                done
+               
                 
                 # Run the application container
-                docker run -d -p 5000:5000 \
+                docker run -d -p 5000:8000 \
                     --name myapp3 \
                     --network ${NETWORK_NAME} \
                     -e DB_URI="mysql+pymysql://root:root@mysql-db-dast:3306/imdb_db" \
