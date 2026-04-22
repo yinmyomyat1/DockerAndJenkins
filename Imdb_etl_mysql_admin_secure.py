@@ -1,4 +1,3 @@
-# imdb_etl_mysql_admin_secure.py
 import os
 import csv
 import logging
@@ -11,7 +10,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
 # -------------------- Config --------------------
-DB_URI = os.getenv("DB_URI", "mysql+pymysql://root@localhost/imdb_db")
+DB_URI = os.getenv("DB_URI", "mysql+pymysql://root@localhost:3307/imdb_db")
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD_HASH = os.getenv("ADMIN_PASSWORD_HASH", generate_password_hash("1234"))
 SECRET_KEY = os.getenv("SECRET_KEY", "supersecretkey")
@@ -282,7 +281,7 @@ def create_app():
 
     return app
 
-# -------------------- Bootstrap --------------------
+# -------------------- Main --------------------
 def main():
     app = create_app()
     with app.app_context():
@@ -296,7 +295,8 @@ def main():
         except Exception as e:
             logging.error(f"ETL failed: {e}")
 
-    app.run(host='0.0.0.0', port=5000)
+    app.run(host='0.0.0.0', port=5050)
 
 if __name__ == "__main__":
     main()
+
