@@ -139,7 +139,7 @@ pipeline {
                 docker rm myapp6 || true
                 docker run -d --name myapp6 --network app-network -p 5050:5050 \
                     -e DB_URI=mysql+pymysql://root:root@mysql-db-dast:3306/imdb_db \
-                    myatmonoo/myapp6:latest
+                    myogyi88/myapp6:latest
                 
                 echo "Waiting for app to initialize..."
                 sleep 15
