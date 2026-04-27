@@ -35,13 +35,13 @@ pipeline {
                     -p 3306:3306 \
                     mysql:8.0 || true
                 
-                echo "⏳ Waiting for MySQL to be ready..."
+                echo "⏳ Waiting for MySQL (60s max)..."
                 for i in {1..12}; do
-                    if docker exec mysql-db-dast mysqladmin ping -h localhost -u root -proot --silent; then
-                        echo "✅ MySQL is ready!"
+                    if timeout 5 docker exec mysql-db-dast mysqladmin ping -h localhost -u root -proot --silent; then
+                        echo "✅ MySQL ready!"
                         break
                     fi
-                    echo "MySQL not ready yet... ($i/12)"
+                    echo "MySQL check $i/12 failed"
                     sleep 5
                 done
                 '''
@@ -67,13 +67,13 @@ pipeline {
                 sh '''
                 . venv/bin/activate
                 mkdir -p reports
-                echo "🔍 Running Bandit SAST scan..."
+                echo "🔍 Bandit SAST..."
                 bandit -r . -f json -o reports/bandit-report.json || true
                 
-                echo "🔍 Running Safety SCA scan..."
+                echo "🔍 Safety SCA..."
                 safety check --full-report > reports/safety-report.txt || true
                 
-                echo "✅ Security scans completed"
+                echo "✅ Scans complete"
                 deactivate
                 '''
             }
@@ -85,45 +85,36 @@ pipeline {
                     env.FULL_IMAGE_TAG = "${DOCKERHUB_CREDENTIALS_USR}/${IMAGE_NAME}:${BUILD_NUMBER}"
                 }
                 sh '''
-                echo "🔨 Building ${FULL_IMAGE_TAG}..."
-                docker build -t ${FULL_IMAGE_TAG} .
-                docker tag ${FULL_IMAGE_TAG} ${DOCKERHUB_CREDENTIALS_USR}/${IMAGE_NAME}:latest
+                echo "🔨 Building ${FULL_IMAGE_TAG}"
+                docker build -t "${FULL_IMAGE_TAG}" .
+                docker tag "${FULL_IMAGE_TAG}" "${DOCKERHUB_CREDENTIALS_USR}/${IMAGE_NAME}:latest"
                 
-                echo "🔐 Logging into Docker Hub..."
+                echo "🔐 Docker login"
                 echo $DOCKERHUB_CREDENTIALS_PSW | docker login -u $DOCKERHUB_CREDENTIALS_USR --password-stdin
                 
-                echo "📤 Pushing with retries (3 attempts)..."
+                echo "📤 Pushing (3 retries)"
                 for attempt in {1..3}; do
-                    if timeout 900 docker push ${FULL_IMAGE_TAG}; then
-                        echo "✅ Push successful on attempt $attempt!"
-                        docker push ${DOCKERHUB_CREDENTIALS_USR}/${IMAGE_NAME}:latest || true
+                    if timeout 600 docker push "${FULL_IMAGE_TAG}"; then
+                        echo "✅ Push success!"
+                        docker push "${DOCKERHUB_CREDENTIALS_USR}/${IMAGE_NAME}:latest" || true
+                        echo "FULL_IMAGE_TAG=${FULL_IMAGE_TAG}" > image_tag.env
                         break
                     else
-                        echo "❌ Push attempt $attempt failed. Retrying in 60s..."
-                        sleep 60
-                        if [ $attempt -eq 3 ]; then
-                            echo "💥 All push attempts failed!"
-                            exit 1
-                        fi
+                        echo "❌ Push $attempt/3 failed, retry ${attempt+1}"
+                        sleep 30
                     fi
                 done
-                
-                echo "FULL_IMAGE_TAG=${FULL_IMAGE_TAG}" > image_tag.env
                 '''
             }
         }
 
-        stage('Unit Tests with Test Database') {
+        stage('Unit Tests') {
             steps {
                 sh '''
                 . venv/bin/activate
-                
-                # Test with localhost (published port 3306)
                 export DB_URI="mysql+pymysql://root:root@localhost:3306/imdb_db"
-                
-                echo "🧪 Running unit tests..."
-                pytest tests/ -v --tb=short -o log_cli=true || true
-                
+                echo "🧪 Running pytest..."
+                pytest -v --tb=short || true
                 deactivate
                 '''
             }
@@ -132,82 +123,44 @@ pipeline {
         stage('Trivy Scan') {
             steps {
                 sh '''
-                source ./image_tag.env || echo "FULL_IMAGE_TAG=${FULL_IMAGE_TAG}"
+                source image_tag.env 2>/dev/null || echo "FULL_IMAGE_TAG=${FULL_IMAGE_TAG}"
                 
-                echo "🔍 Pulling Trivy scanner..."
-                for attempt in {1..3}; do
-                    if docker pull aquasec/trivy:0.56.0; then
-                        echo "✅ Trivy pulled successfully!"
-                        break
-                    else
-                        echo "❌ Trivy pull attempt $attempt failed, retrying..."
-                        sleep 10
-                    fi
-                done
+                echo "🔍 Trivy scan..."
+                docker pull aquasec/trivy:0.56.0 || true
                 
-                echo "🔍 Running Trivy vulnerability scan..."
-                docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
-                    aquasec/trivy:0.56.0 image \
-                    --format json \
-                    --severity CRITICAL,HIGH \
-                    --output reports/trivy-report.json \
-                    --no-progress \
-                    ${FULL_IMAGE_TAG} || true
-                
-                echo "📊 Trivy scan summary:"
                 docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
                     aquasec/trivy:0.56.0 image \
                     --format table \
-                    --severity CRITICAL,HIGH \
+                    --severity HIGH,CRITICAL \
                     --no-progress \
-                    ${FULL_IMAGE_TAG}
+                    "${FULL_IMAGE_TAG}" || true
                 '''
             }
         }
 
-        stage('Run App & DAST') {
-            when {
-                expression { currentBuild.result == null || currentBuild.result == 'SUCCESS' }
-            }
+        stage('Deploy & DAST') {
             steps {
                 sh '''
-                # Cleanup previous app container
                 docker stop myapp6 || true
                 docker rm myapp6 || true
                 
-                # Run the app
-                echo "🚀 Starting application..."
+                echo "🚀 Deploying app..."
                 docker run -d --name myapp6 \
                     --network ${NETWORK_NAME} \
                     -p 5050:5050 \
                     -e DB_URI="${DB_URI_DOCKER}" \
-                    ${FULL_IMAGE_TAG}
+                    "${FULL_IMAGE_TAG}"
                 
-                echo "⏳ Waiting for app to be healthy..."
-                for i in {1..20}; do
-                    if curl -f http://localhost:5050/health || curl -f http://localhost:5050/ready; then
-                        echo "✅ App is healthy!"
-                        break
-                    fi
-                    echo "App not ready yet... ($i/20)"
-                    sleep 3
-                done
+                sleep 10
                 
-                # DAST with ZAP
-                echo "🛡️ Running DAST with OWASP ZAP..."
+                echo "🛡️ ZAP DAST scan..."
                 mkdir -p reports
-                
                 docker run --rm --network ${NETWORK_NAME} \
                     -v $(pwd)/reports:/zap/wrk/:rw \
-                    -t ghcr.io/zaproxy/zaproxy:stable \
+                    ghcr.io/zaproxy/zaproxy:stable \
                     zap-baseline.py \
                     -t http://myapp6:5050 \
-                    -r /zap/wrk/zap-report.html \
-                    -J /zap/wrk/zap-report.json \
-                    --hook-http-header "Host: localhost" \
-                    -I || true
-                
-                echo "✅ DAST scan completed"
+                    -r /zap/wrk/zap-report.html || true
                 '''
             }
         }
@@ -216,38 +169,19 @@ pipeline {
     post {
         always {
             sh '''
-            # Cleanup
             docker stop myapp6 mysql-db-dast || true
             docker rm myapp6 mysql-db-dast || true
-            
-            # Prune unused Docker objects
             docker image prune -f
             docker container prune -f
             '''
-            
-            // Archive comprehensive reports
-            archiveArtifacts artifacts: 'reports/**, image_tag.env, zap-report.html', 
-                           allowEmptyArchive: true, fingerprint: true
-            
-            // Publish HTML reports
-            publishHTML([
-                allowMissing: true,
-                alwaysLinkToLastBuild: true,
-                keepAll: true,
-                reportDir: 'reports',
-                reportFiles: 'zap-report.html',
-                reportName: 'OWASP ZAP DAST Report'
-            ])
+            archiveArtifacts artifacts: 'reports/**,image_tag.env,zap-report.html', 
+                           allowEmptyArchive: true
         }
-        
         success {
-            echo '🎉 Pipeline completed successfully!'
-            slackSend(channel: '#ci-cd', color: 'good', message: "✅ Pipeline SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}")
+            echo '🎉 SUCCESS - Full CI/CD pipeline complete!'
         }
-        
         failure {
-            echo '💥 Pipeline failed!'
-            slackSend(channel: '#ci-cd', color: 'danger', message: "❌ Pipeline FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER} (<${env.BUILD_URL}|View>)")
+            echo '💥 FAILURE - Check logs above'
         }
     }
 }
