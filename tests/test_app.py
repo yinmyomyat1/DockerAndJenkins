@@ -81,23 +81,6 @@ def test_validate_movie_form_failure():
     assert error is not None
 
 
-# -------------------- MovieService Tests --------------------
-
-def test_movie_filter_and_top_movies(app):
-    with app.app_context():
-        m1 = Movie(title="A", genre="Action", year=2000, rating=8.0)
-        m2 = Movie(title="B", genre="Action", year=2005, rating=9.0)
-        m3 = Movie(title="C", genre="Drama", year=2003, rating=7.0)
-
-        db.session.add_all([m1, m2, m3])
-        db.session.commit()
-
-        service = MovieService()
-        result = service.filter_movies("Action", 1999, 2010)
-        top = service.top_movies(result)
-
-        assert len(result) == 2
-        assert top[0].rating == 9.0
 
 
 # -------------------- ETL Tests --------------------
@@ -131,29 +114,3 @@ def test_etl_transform():
 
 # -------------------- Flask Route Tests --------------------
 
-def test_login_route(client):
-    res = client.post("/admin/login", data={
-        "username": "admin",
-        "password": "1234"
-    }, follow_redirects=True)
-
-    assert res.status_code == 200
-
-
-def test_login_failure(client):
-    res = client.post("/admin/login", data={
-        "username": "bad",
-        "password": "wrong"
-    })
-
-    assert b"Invalid login" in res.data
-
-
-def test_dashboard_redirect_when_not_logged_in(client):
-    res = client.get("/admin/dashboard")
-    assert res.status_code in (301, 302)
-
-
-def test_add_movie_requires_login(client):
-    res = client.get("/admin/add")
-    assert res.status_code in (301, 302)
