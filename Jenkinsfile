@@ -56,7 +56,7 @@ pipeline {
             }
         }
 
-        stage('SCA - Security Scans') {
+        stage('SCA & SAST - Security Scans') {
             steps {
                 sh '''
                 . venv/bin/activate
