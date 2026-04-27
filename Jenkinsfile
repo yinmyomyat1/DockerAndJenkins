@@ -150,10 +150,15 @@ pipeline {
                 
                 # 2. Run ZAP with the current user's UID to avoid permission mismatch
                 # Or simply use the -u root flag to bypass permission checks (easiest for CI)
-                docker run --user root --network app-network \
-                    -v $(pwd):/zap/wrk:rw \
-                    ghcr.io/zaproxy/zaproxy:stable \
-                    zap-baseline.py -t http://myapp6:5050 -r zap-report.html -I
+                docker run --user root \
+  --network app-network \
+  -v /var/jenkins_home/workspace/MovieRecommander:/zap/wrk:rw \
+  ghcr.io/zaproxy/zaproxy:stable \
+  zap-baseline.py -t http://myapp6:5050 -r zap-report.html -I
+                // docker run --user root --network app-network \
+                //     -v $(pwd):/zap/wrk:rw \
+                //     ghcr.io/zaproxy/zaproxy:stable \
+                //     zap-baseline.py -t http://myapp6:5050 -r zap-report.html -I
                 
                 '''
             }
