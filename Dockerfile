@@ -17,4 +17,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # 4. Use the correct script name from your repo
-CMD ["python", "imdb_etl_mysql_admin_secure.py"]
+CMD ["python", "Imdb_etl_mysql_admin_secure.py"]
